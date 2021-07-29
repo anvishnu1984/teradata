@@ -1,0 +1,48 @@
+create VOLATILE TABLE  DiskspaceusageStats  AS (
+SELECT A.DatabaseName    as databasename,A.tablename   as tabname ,CreateTimeStamp as timeval, CAST(SUM(CurrentPerm)/(1024.0*1024.0*1024.0) AS DECIMAL(18,5))  as space
+FROM dbc.tablesize A,DBC.TABLES B
+WHERE A.TABLENAME=B.TABLENAME
+AND A.DatabaseName = B.DatabaseName AND A.DatabaseName = 'C4DRG' 
+GROUP BY 1,2,3 
+)
+WITH DATA PRIMARY INDEX (Databasename)
+ON COMMIT PRESERVE ROWS;
+
+create VOLATILE TABLE  tableowners as  ( sel creatorname, tablename  as tabname  from dbc.columns  group by creatorname, tablename where tablename in  ( SELECT A.tablename 
+FROM dbc.tablesize A,DBC.TABLES B
+WHERE A.TABLENAME=B.TABLENAME
+AND A.DatabaseName = B.DatabaseName AND A.DatabaseName = 'C4DRG'  
+ )
+ )
+ WITH DATA PRIMARY INDEX (creatorname)
+ON COMMIT PRESERVE ROWS;
+ 
+ create VOLATILE TABLE   skewusage  as (
+sel a.* ,   (a.AMPMaximum -     a.AMPMinimum) as skewdifference  from    ( SELECT
+  TableName (FORMAT 'X(20)'),
+  MIN(CurrentPerm) AS "AMPMinimum",
+  AVG(CurrentPerm) AS "AMPAverage",
+  MAX(CurrentPerm) AS "AMPMaximum"
+  
+FROM DBC.TableSizeV
+WHERE DatabaseName = 'c4drg'
+GROUP BY TableName
+  ) a)
+  
+  WITH DATA PRIMARY INDEX (tablename)
+ON COMMIT PRESERVE ROWS;
+
+
+
+sel a.*, b.creatorname as creators,b.tabname as tablenames, c.*, d.*,  current_date -  CAST (  c.timeval  as DATE)   as  age_in_days   from     ( sELECT 'DROP TABLE ' || TRIM(DATABASENAME) || '.' || TRIM(TABLENAME) || ';' as Drop_table_Expr, tablename
+FROM DBC.TABLESV
+WHERE DATABASENAME='c4drg'
+AND TABLEKIND = 'T'
+AND TABLENAME  in  ( sel  tabname  from DiskspaceusageStats where space > 0  and (CURRENT_DATE-9) BETWEEN timeval  AND current_date ) )  a
+
+left join   tableowners  b on a.tablename = b.tabname
+
+left join ( sel *  from DiskspaceusageStats ) c
+on c.tabname = b.tabname
+left join ( sel * from skewusage ) d
+on d.tablename = c.tabname
